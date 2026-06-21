@@ -1,0 +1,32 @@
+# Render.com deployment manifest.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: bloghub-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # change to standard/pro as needed
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: DB_URL
+        sync: false        # set in Render dashboard / secret
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: ap-south-1
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_S3_ENDPOINT
+        value: ""          # empty = real AWS S3
+      - key: AWS_S3_PATH_STYLE
+        value: "false"
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false        # set to your frontend URL

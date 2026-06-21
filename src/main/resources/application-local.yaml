@@ -1,0 +1,104 @@
+spring:
+  application:
+    name: bloghub
+
+  # ─── PostgreSQL Configuration ───────────────────────────────────────────────
+  # All credentials are sourced from environment variables — never hardcode
+  # secrets in committed config files. See .env.example for the variables
+  # this file expects.
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/bloghub_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 20000
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1200000
+      pool-name: HikariPool-Local
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# ─── AWS S3 Configuration ────────────────────────────────────────────────────
+# Credentials are NEVER stored here. Locally, export AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY (or use an AWS profile / instance role in deployed
+# environments) and the SDK default credential chain picks them up — see
+# S3Config. Only non-secret settings live in this file.
+app:
+  aws:
+    region: ${AWS_REGION:ap-south-1}
+    s3:
+      bucket-name: ${AWS_S3_BUCKET:aws-s3-bloghub-bucket}
+      endpoint: ${AWS_S3_ENDPOINT:}            # override for LocalStack, e.g. http://localhost:4566
+      path-style-access-enabled: ${AWS_S3_PATH_STYLE:false}
+      presigned-url-ttl-minutes: 15
+      max-file-size-bytes: 5242880              # 5MB
+      allowed-content-types: image/jpeg,image/png,image/webp,image/gif
+
+  pagination:
+    default-page-size: 10
+    max-page-size: 50
+
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+# ─── Spring Boot Actuator ────────────────────────────────────────────────────
+management:                           # Actuator on a separate port (optional)
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include:
+          - health
+          - info
+  endpoint:
+    health:
+      show-details: when-authorized
+      show-components: when-authorized
+      probes:
+        enabled: true                    # enables /actuator/health/liveness & /readiness
+  health:
+    db:
+      enabled: true                      # PostgreSQL health indicator
+    diskspace:
+      enabled: true
+      threshold: 10MB
+    defaults:
+      enabled: true
+
+# ─── Logging ─────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.subho.bloghub: DEBUG
+    org.springframework.web: INFO
+    com.zaxxer.hikari: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ─── Server ──────────────────────────────────────────────────────────────────
+server:
+  port: 8070
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false

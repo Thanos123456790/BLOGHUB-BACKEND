@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: bloghub
+  profiles:
+    active: ${PROFILE:local}

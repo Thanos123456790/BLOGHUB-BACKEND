@@ -1,0 +1,59 @@
+# Local development compose — NOT for production.
+# Starts the app alongside a Postgres instance and a LocalStack S3 emulator.
+# Usage: docker-compose up --build
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bloghub_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:3
+    restart: unless-stopped
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: ap-south-1
+    volumes:
+      - localstack_data:/var/lib/localstack
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      PORT: 8080
+      DB_URL: jdbc:postgresql://db:5432/bloghub_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: ap-south-1
+      AWS_S3_BUCKET: bloghub-local
+      AWS_S3_ENDPOINT: http://localstack:4566
+      AWS_S3_PATH_STYLE: "true"
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
+  localstack_data:
