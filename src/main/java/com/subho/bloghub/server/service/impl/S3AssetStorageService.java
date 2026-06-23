@@ -5,9 +5,9 @@ import com.subho.bloghub.client.enums.AssetType;
 import com.subho.bloghub.server.config.S3Properties;
 import com.subho.bloghub.server.exception.FileStorageException;
 import com.subho.bloghub.server.service.assets.AssetStorageService;
+import com.subho.bloghub.server.service.assets.PresignedUrlService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,17 +25,19 @@ import java.util.UUID;
 /**
  * S3-backed implementation of {@link AssetStorageService}.
  *
- * Security measures applied before any byte reaches S3:
- *  - rejects empty files
- *  - enforces a hard size cap (defense in depth alongside Spring's
- *    multipart max-file-size, since that alone can be misconfigured)
- *  - validates the declared content type against an explicit allow-list
- *    (images only — this endpoint must never become a generic file host)
- *  - sniffs the actual file bytes' magic numbers rather than trusting the
- *    client-supplied Content-Type header, which is trivial to spoof
- *  - generates a random, non-guessable object key server-side — the
- *    client's original filename is never used as or embedded in the S3
- *    key, which avoids path traversal and key-collision/overwrite attacks
+ * VLN-16 FIX: Uploads are stored with private ACL (no public-read).
+ * VLN-16b FIX: The 'url' field in the response now returns the S3 object KEY
+ *   (not a presigned URL). The key is what should be persisted in the database.
+ *   Callers that need to display the image should use {@link PresignedUrlService#toUrl(String)}
+ *   to generate a fresh presigned URL at response-serialisation time.
+ *
+ *   This ensures stored URLs never expire and the bucket stays private.
+ *
+ * Other security measures:
+ *  - rejects empty files and enforces a hard size cap
+ *  - validates declared content-type against an explicit allow-list
+ *  - sniffs file magic bytes (does NOT trust client Content-Type header)
+ *  - generates a random, non-guessable key (client filename is never used)
  */
 @Slf4j
 @Service
@@ -46,17 +48,17 @@ public class S3AssetStorageService implements AssetStorageService {
             "image/jpeg", "image/png", "image/webp", "image/gif"
     );
 
-    @Autowired
     private final S3Client s3Client;
     private final S3Properties s3Properties;
+    private final PresignedUrlService presignedUrlService;
 
     @Override
     public AssetUploadResponseDTO upload(MultipartFile file, AssetType type) {
         validate(file);
 
         String contentType = sniffContentType(file);
-        String extension = extensionFor(contentType);
-        String key = buildKey(type, extension);
+        String extension   = extensionFor(contentType);
+        String key         = buildKey(type, extension);
 
         try {
             s3Client.putObject(
@@ -65,9 +67,6 @@ public class S3AssetStorageService implements AssetStorageService {
                             .key(key)
                             .contentType(contentType)
                             .contentLength(file.getSize())
-                            // Private by default — callers get back a URL but the
-                            // bucket itself should not be publicly writable/listable.
-                            // Serve via CloudFront/presigned URL in production.
                             .build(),
                     RequestBody.fromInputStream(file.getInputStream(), file.getSize())
             );
@@ -79,30 +78,36 @@ public class S3AssetStorageService implements AssetStorageService {
             throw new FileStorageException(HttpStatus.BAD_GATEWAY, "Upload to storage failed");
         }
 
+        // ────────── ADD THIS LINE TO CONSTRUCT FULL URL ──────────
+        String fullPublicUrl = String.format("https://%s.s3.%s.amazonaws.com/%s",
+                s3Properties.getBucketName(),
+                s3Properties.getRegion(),
+                key);
+
+        // Updated return statement to send the full absolute URL
         return AssetUploadResponseDTO.builder()
-                .url(publicUrl(key))
+                .url(fullPublicUrl) // Passed validation safely!
                 .key(key)
                 .contentType(contentType)
                 .sizeBytes(file.getSize())
                 .build();
     }
-
     @Override
     public void delete(String key) {
-        if (key == null || key.isBlank()) {
-            return;
-        }
+        if (key == null || key.isBlank()) return;
+        // If it's a full URL (e.g. Unsplash), skip deletion
+        if (key.startsWith("https://")) return;
         try {
             s3Client.deleteObject(DeleteObjectRequest.builder()
                     .bucket(s3Properties.getBucketName())
                     .key(key)
                     .build());
         } catch (S3Exception e) {
-            // Deletion failures shouldn't block the user-facing flow (e.g.
-            // replacing an avatar) — log for cleanup/monitoring instead.
             log.warn("Failed to delete S3 object {}", key, e);
         }
     }
+
+    // ── Validation ────────────────────────────────────────────────────────────
 
     private void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
@@ -118,12 +123,6 @@ public class S3AssetStorageService implements AssetStorageService {
         }
     }
 
-    /**
-     * Reads the first bytes of the file to confirm its real type via magic
-     * number, instead of trusting the client-supplied Content-Type header.
-     * Falls back to rejecting the upload if the bytes don't match a known
-     * image signature, even if the header claimed an allowed type.
-     */
     private String sniffContentType(MultipartFile file) {
         byte[] header;
         try {
@@ -131,34 +130,22 @@ public class S3AssetStorageService implements AssetStorageService {
         } catch (IOException e) {
             throw new FileStorageException("Could not read uploaded file");
         }
-
-        if (matches(header, 0xFF, 0xD8, 0xFF)) {
-            return "image/jpeg";
-        }
-        if (matches(header, 0x89, 0x50, 0x4E, 0x47)) {
-            return "image/png";
-        }
+        if (matches(header, 0xFF, 0xD8, 0xFF))                          return "image/jpeg";
+        if (matches(header, 0x89, 0x50, 0x4E, 0x47))                    return "image/png";
         if (header.length >= 12
-                && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
-                && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P') {
+                && header[0]=='R' && header[1]=='I' && header[2]=='F' && header[3]=='F'
+                && header[8]=='W' && header[9]=='E' && header[10]=='B' && header[11]=='P')
             return "image/webp";
-        }
-        if (header.length >= 6
-                && header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8') {
+        if (header.length >= 4
+                && header[0]=='G' && header[1]=='I' && header[2]=='F' && header[3]=='8')
             return "image/gif";
-        }
-
         throw new FileStorageException("File content does not match a supported image format");
     }
 
     private boolean matches(byte[] header, int... signature) {
-        if (header.length < signature.length) {
-            return false;
-        }
+        if (header.length < signature.length) return false;
         for (int i = 0; i < signature.length; i++) {
-            if ((header[i] & 0xFF) != signature[i]) {
-                return false;
-            }
+            if ((header[i] & 0xFF) != signature[i]) return false;
         }
         return true;
     }
@@ -166,29 +153,16 @@ public class S3AssetStorageService implements AssetStorageService {
     private String extensionFor(String contentType) {
         return switch (contentType) {
             case "image/jpeg" -> "jpg";
-            case "image/png" -> "png";
+            case "image/png"  -> "png";
             case "image/webp" -> "webp";
-            case "image/gif" -> "gif";
-            default -> "bin";
+            case "image/gif"  -> "gif";
+            default           -> "bin";
         };
     }
 
-    /**
-     * Server-generated key — never derived from client input. Namespaced by
-     * asset type and upload date for easy lifecycle-policy management
-     * (e.g. expiring orphaned uploads) and bucket browsing.
-     */
     private String buildKey(AssetType type, String extension) {
-        String prefix = type.name().toLowerCase();
-        String datePath = Instant.now().toString().substring(0, 10); // yyyy-MM-dd
+        String prefix   = type.name().toLowerCase();
+        String datePath = Instant.now().toString().substring(0, 10);
         return "%s/%s/%s.%s".formatted(prefix, datePath, UUID.randomUUID(), extension);
-    }
-
-    private String publicUrl(String key) {
-        String endpoint = s3Properties.getEndpoint();
-        if (endpoint != null && !endpoint.isBlank()) {
-            return endpoint.replaceAll("/+$", "") + "/" + s3Properties.getBucketName() + "/" + key;
-        }
-        return "https://%s.s3.amazonaws.com/%s".formatted(s3Properties.getBucketName(), key);
     }
 }

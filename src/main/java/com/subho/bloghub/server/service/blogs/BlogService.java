@@ -11,31 +11,31 @@ import org.springframework.data.domain.Pageable;
 
 public interface BlogService {
 
-    Page<BlogCardResponseDTO> getFeed(String feed, String tag, Pageable pageable);
+    Page<BlogCardResponseDTO> getFeed(String accessToken, String feed, String tag, Pageable pageable);
 
-    BlogResponseDTO createBlog(CreateBlogRequestDTO request);
+    BlogResponseDTO createBlog(String accessToken, CreateBlogRequestDTO request);
 
-    BlogResponseDTO getFullBlog(String id);
+    BlogResponseDTO getFullBlog(String accessToken, String id);
 
-    BlogResponseDTO updateBlog(String id, UpdateBlogRequestDTO request);
+    BlogResponseDTO updateBlog(String accessToken, String id, UpdateBlogRequestDTO request);
 
-    void deleteBlog(String id);
+    void deleteBlog(String accessToken, String id);
 
-    Page<BlogCardResponseDTO> getTrendingBlogs(Pageable pageable);
+    Page<BlogCardResponseDTO> getTrendingBlogs(Pageable pageable, String accessToken);
 
-    ReactionCountResponseDTO addReaction(String blogId, ReactionRequestDTO request);
+    ReactionCountResponseDTO addReaction(String accessToken, String blogId, ReactionRequestDTO request);
 
-    ReactionCountResponseDTO removeReaction(String blogId);
+    ReactionCountResponseDTO removeReaction(String accessToken, String blogId);
 
-    Page<BlogCardResponseDTO> getBookmarkedBlogs(Pageable pageable);
+    Page<BlogCardResponseDTO> getBookmarkedBlogs(String accessToken, Pageable pageable);
 
-    void addBookmark(String blogId);
+    void addBookmark(String accessToken, String blogId);
 
-    void removeBookmark(String blogId);
+    void removeBookmark(String accessToken, String blogId);
 
-    Page<BlogCardResponseDTO> searchBlogs(String query, Pageable pageable);
+    Page<BlogCardResponseDTO> searchBlogs(String query, Pageable pageable, String accessToken);
 
-    Page<BlogCardResponseDTO> getBlogsByTag(String tagName, Pageable pageable);
+    Page<BlogCardResponseDTO> getBlogsByTag(String tagName, Pageable pageable, String accessToken);
 
-    Page<BlogCardResponseDTO> getBlogsByAuthorHandle(String handle, Pageable pageable);
+    Page<BlogCardResponseDTO> getBlogsByAuthorHandle(String handle, Pageable pageable, String accessToken);
 }

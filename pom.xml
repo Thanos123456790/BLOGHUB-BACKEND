@@ -7,7 +7,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.3.4</version>
+		<version>3.5.3</version>
 		<relativePath/>
 	</parent>
 
@@ -44,6 +44,12 @@
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
+		<!-- JWT verification via Clerk's JWKS endpoint -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+
 		<!-- Actuator (health checks already referenced in application-local.yaml) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -76,6 +82,25 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
 			<version>${awssdk.version}</version>
+		</dependency>
+
+
+
+		<!-- VLN-17 FIX: Database migrations via Flyway -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+
+		<!-- Rate limiting (Bucket4j - in-memory, no Redis required for single-node) -->
+		<dependency>
+			<groupId>com.bucket4j</groupId>
+			<artifactId>bucket4j-core</artifactId>
+			<version>8.10.1</version>
 		</dependency>
 
 		<!-- Test -->

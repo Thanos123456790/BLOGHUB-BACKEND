@@ -7,6 +7,7 @@ import com.subho.bloghub.client.dtos.users.UserProfileResponseDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Size;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,7 +31,7 @@ public interface SearchAndTagsAPI {
     @GetMapping("/search/blogs")
     ResponseEntity<Page<BlogCardResponseDTO>> getBlogsOnSearch(
             String accessToken,
-            @RequestParam String query,
+            @RequestParam @Size(max = 200, message = "Search query must not exceed 200 characters") String query,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     );
@@ -46,7 +47,7 @@ public interface SearchAndTagsAPI {
     @GetMapping("/search/users")
     ResponseEntity<Page<UserProfileResponseDTO>> getProfilesByNameOrHandle(
             String accessToken,
-            @RequestParam String query,
+            @RequestParam @Size(max = 200, message = "Search query must not exceed 200 characters") String query,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     );

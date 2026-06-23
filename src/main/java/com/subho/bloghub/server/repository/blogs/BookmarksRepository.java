@@ -19,6 +19,10 @@ public interface BookmarksRepository extends JpaRepository<Bookmarks, UUID> {
     @Modifying
     void deleteByUser_IdAndBlog_Id(UUID userId, UUID blogId);
 
+    /** VLN-11 FIX: Bulk delete all bookmarks for a blog being deleted. */
+    @Modifying
+    void deleteByBlog_Id(UUID blogId);
+
     @EntityGraph(attributePaths = {"blog", "blog.author"})
     Page<Bookmarks> findByUser_IdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
 

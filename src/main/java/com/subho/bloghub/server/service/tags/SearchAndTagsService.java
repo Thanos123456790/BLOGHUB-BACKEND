@@ -8,11 +8,11 @@ import org.springframework.data.domain.Pageable;
 
 public interface SearchAndTagsService {
 
-    Page<BlogCardResponseDTO> searchBlogs(String query, Pageable pageable);
+    Page<BlogCardResponseDTO> searchBlogs(String query, Pageable pageable, String accessToken);
 
     Page<UserProfileResponseDTO> searchUsers(String query, Pageable pageable);
 
     Page<TagResponseDTO> getTrendingTags(Pageable pageable);
 
-    Page<BlogCardResponseDTO> getBlogsByTag(String tagName, Pageable pageable);
+    Page<BlogCardResponseDTO> getBlogsByTag(String tagName, Pageable pageable, String accessToken);
 }

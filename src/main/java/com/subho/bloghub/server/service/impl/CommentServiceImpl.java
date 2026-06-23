@@ -27,23 +27,24 @@ import com.subho.bloghub.server.repository.users.UserRepository;
 import com.subho.bloghub.server.service.comments.CommentService;
 import com.subho.bloghub.server.service.notifications.NotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class CommentServiceImpl implements CommentService {
+
+    // VLN-09 FIX: Regex to extract @handles from comment text for cross-validation.
+    private static final Pattern MENTION_PATTERN = Pattern.compile("@([\\w]+)");
 
     private final CommentsRepository commentsRepository;
     private final CommentReactionsRepository commentReactionsRepository;
@@ -56,27 +57,23 @@ public class CommentServiceImpl implements CommentService {
     private final NotificationService notificationService;
 
     @Override
-    public Page<CommentResponseDTO> getTopComments(String blogId, Pageable pageable) {
+    public Page<CommentResponseDTO> getTopComments(String accessToken, String blogId, Pageable pageable) {
         UUID id = UuidUtils.parse(blogId, "blog id");
         if (!blogRepository.existsById(id)) {
             throw new ResourceNotFoundException("Blog", blogId);
         }
-
         Page<Comments> page = commentsRepository.findByBlog_IdAndParentIsNullOrderByCreatedAtAsc(id, pageable);
         List<Comments> topComments = page.getContent();
         if (topComments.isEmpty()) {
             return page.map(c -> commentMapper.toResponse(c, CommentAggregateContext.empty()));
         }
-
         List<UUID> topIds = topComments.stream().map(Comments::getId).toList();
         List<Comments> replies = commentsRepository.findByParent_IdInOrderByCreatedAtAsc(topIds);
 
-        // All comment ids (top-level + replies) that need reaction/mention aggregates,
-        // fetched in one batch each instead of per-comment.
         List<UUID> allCommentIds = new ArrayList<>(topIds);
         allCommentIds.addAll(replies.stream().map(Comments::getId).toList());
 
-        UUID viewerId = currentUserResolver.resolveCurrentUserIdOrNull(null);
+        UUID viewerId = currentUserResolver.resolveCurrentUserIdOrNull(accessToken);
         Map<UUID, ReactionCountResponseDTO> reactionsByComment = fetchReactionCounts(allCommentIds);
         Map<UUID, ReactionType> myReactionByComment = fetchMyReactions(allCommentIds, viewerId);
         Map<UUID, List<UserProfileResponseDTO>> mentionsByComment = fetchMentions(allCommentIds);
@@ -93,7 +90,6 @@ public class CommentServiceImpl implements CommentService {
                             List.of()
                     )))
                     .toList();
-
             return commentMapper.toResponse(top, new CommentAggregateContext(
                     reactionsByComment.getOrDefault(top.getId(), ReactionCountResponseDTO.builder().build()),
                     myReactionByComment.get(top.getId()),
@@ -105,9 +101,9 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
-    public CommentResponseDTO postTopComment(String blogId, CreateCommentRequestDTO request) {
+    public CommentResponseDTO postTopComment(String accessToken, String blogId, CreateCommentRequestDTO request) {
         UUID id = UuidUtils.parse(blogId, "blog id");
-        UUID authorId = currentUserResolver.requireCurrentUserId(null);
+        UUID authorId = currentUserResolver.requireCurrentUserId(accessToken);
 
         Blogs blog = blogRepository.findWithAuthorById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Blog", blogId));
@@ -119,9 +115,11 @@ public class CommentServiceImpl implements CommentService {
         comment.setAuthor(author);
         Comments saved = commentsRepository.save(comment);
 
+        // VLN-09 FIX: validate mentions against comment text before persisting
         List<UserProfileResponseDTO> taggedUsers = attachMentions(saved, request.getTaggedUserIds(), author);
 
         notificationService.notify(blog.getAuthor(), author, "comment", blog, saved, null);
+        log.info("AUDIT: User {} posted comment {} on blog {}", authorId, saved.getId(), id);
 
         return commentMapper.toResponse(saved, new CommentAggregateContext(
                 ReactionCountResponseDTO.builder().build(), null, taggedUsers, List.of()));
@@ -129,10 +127,10 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
-    public CommentResponseDTO replyToComment(String blogId, String commentId, CreateCommentRequestDTO request) {
-        UUID blogUuid = UuidUtils.parse(blogId, "blog id");
-        UUID parentId = UuidUtils.parse(commentId, "comment id");
-        UUID authorId = currentUserResolver.requireCurrentUserId(null);
+    public CommentResponseDTO replyToComment(String accessToken, String blogId, String commentId, CreateCommentRequestDTO request) {
+        UUID blogUuid   = UuidUtils.parse(blogId, "blog id");
+        UUID parentId   = UuidUtils.parse(commentId, "comment id");
+        UUID authorId   = currentUserResolver.requireCurrentUserId(accessToken);
 
         Blogs blog = blogRepository.findWithAuthorById(blogUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Blog", blogId));
@@ -141,6 +139,13 @@ public class CommentServiceImpl implements CommentService {
 
         if (!parent.getBlog().getId().equals(blogUuid)) {
             throw new BadRequestException("Comment does not belong to the specified blog");
+        }
+
+        // VLN-10b FIX: Limit reply depth to 1 level. Replies-to-replies are not
+        // allowed — they create unbounded nesting that breaks the feed query and
+        // can cause stack overflows in recursive mappers.
+        if (parent.getParent() != null) {
+            throw new BadRequestException("Replies to replies are not supported. Reply to the top-level comment instead.");
         }
 
         Users author = userRepository.findById(authorId)
@@ -153,7 +158,6 @@ public class CommentServiceImpl implements CommentService {
         Comments saved = commentsRepository.save(reply);
 
         List<UserProfileResponseDTO> taggedUsers = attachMentions(saved, request.getTaggedUserIds(), author);
-
         notificationService.notify(parent.getAuthor(), author, "reply", blog, saved, null);
 
         return commentMapper.toResponse(saved, new CommentAggregateContext(
@@ -162,9 +166,9 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
-    public CommentResponseDTO updateComment(String commentId, CreateCommentRequestDTO request) {
-        UUID id = UuidUtils.parse(commentId, "comment id");
-        UUID callerId = currentUserResolver.requireCurrentUserId(null);
+    public CommentResponseDTO updateComment(String accessToken, String commentId, CreateCommentRequestDTO request) {
+        UUID id       = UuidUtils.parse(commentId, "comment id");
+        UUID callerId = currentUserResolver.requireCurrentUserId(accessToken);
 
         Comments comment = commentsRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Comment", commentId));
@@ -187,9 +191,9 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
-    public void deleteComment(String commentId) {
-        UUID id = UuidUtils.parse(commentId, "comment id");
-        UUID callerId = currentUserResolver.requireCurrentUserId(null);
+    public void deleteComment(String accessToken, String commentId) {
+        UUID id       = UuidUtils.parse(commentId, "comment id");
+        UUID callerId = currentUserResolver.requireCurrentUserId(accessToken);
 
         Comments comment = commentsRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Comment", commentId));
@@ -198,18 +202,17 @@ public class CommentServiceImpl implements CommentService {
             throw new ForbiddenException("Only the author can delete this comment");
         }
 
-        // Replies reference this comment via parent_id; deleting them explicitly
-        // here keeps behaviour predictable regardless of DB-level cascade config.
         List<Comments> replies = commentsRepository.findByParent_IdInOrderByCreatedAtAsc(List.of(id));
         commentsRepository.deleteAll(replies);
         commentsRepository.delete(comment);
+        log.info("AUDIT: User {} deleted comment {}", callerId, id);
     }
 
     @Override
     @Transactional
-    public ReactionCountResponseDTO addReaction(String commentId, ReactionRequestDTO request) {
-        UUID id = UuidUtils.parse(commentId, "comment id");
-        UUID userId = currentUserResolver.requireCurrentUserId(null);
+    public ReactionCountResponseDTO addReaction(String accessToken, String commentId, ReactionRequestDTO request) {
+        UUID id     = UuidUtils.parse(commentId, "comment id");
+        UUID userId = currentUserResolver.requireCurrentUserId(accessToken);
 
         if (request == null || request.getReactionType() == null) {
             throw new BadRequestException("reactionType is required");
@@ -235,38 +238,60 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional
-    public ReactionCountResponseDTO removeReaction(String commentId) {
-        UUID id = UuidUtils.parse(commentId, "comment id");
-        UUID userId = currentUserResolver.requireCurrentUserId(null);
+    public ReactionCountResponseDTO removeReaction(String accessToken, String commentId) {
+        UUID id     = UuidUtils.parse(commentId, "comment id");
+        UUID userId = currentUserResolver.requireCurrentUserId(accessToken);
 
         if (!commentsRepository.existsById(id)) {
             throw new ResourceNotFoundException("Comment", commentId);
         }
-
         commentReactionsRepository.deleteByUser_IdAndComment_Id(userId, id);
         return buildReactionCounts(id);
     }
 
-    // ── Mentions ──────────────────────────────────────────────────────────
+    // ── VLN-09: Validated mention attachment ─────────────────────────────────
 
-    private List<UserProfileResponseDTO> attachMentions(Comments comment, List<UUID> taggedUserIds, Users commentAuthor) {
+    /**
+     * Persists mention rows only for users whose @handle is actually present
+     * in the comment text. Silently drops IDs that don't match a handle in
+     * the content — preventing notification spam to arbitrary users.
+     */
+    private List<UserProfileResponseDTO> attachMentions(Comments comment,
+                                                         List<UUID> taggedUserIds,
+                                                         Users commentAuthor) {
         if (taggedUserIds == null || taggedUserIds.isEmpty()) {
             return List.of();
+        }
+
+        // Extract @handles present in the comment text
+        Set<String> mentionedHandles = new HashSet<>();
+        var matcher = MENTION_PATTERN.matcher(comment.getContent());
+        while (matcher.find()) {
+            mentionedHandles.add(matcher.group(1).toLowerCase());
         }
 
         Set<UUID> distinctIds = Set.copyOf(taggedUserIds);
         List<Users> taggedUsers = userRepository.findByIdIn(new ArrayList<>(distinctIds));
 
-        List<CommentMentions> mentions = taggedUsers.stream()
+        // VLN-09 FIX: Only keep users whose handle appears in the comment content
+        List<Users> validMentions = taggedUsers.stream()
+                .filter(u -> mentionedHandles.contains(u.getHandle().toLowerCase()))
+                .toList();
+
+        if (validMentions.isEmpty()) {
+            return List.of();
+        }
+
+        List<CommentMentions> mentions = validMentions.stream()
                 .map(u -> CommentMentions.builder().comment(comment).mentionedUser(u).build())
                 .toList();
         commentMentionsRepository.saveAll(mentions);
 
-        for (Users mentioned : taggedUsers) {
+        for (Users mentioned : validMentions) {
             notificationService.notify(mentioned, commentAuthor, "mention", comment.getBlog(), comment, null);
         }
 
-        return taggedUsers.stream().map(userMapper::toResponse).toList();
+        return validMentions.stream().map(userMapper::toResponse).toList();
     }
 
     private Map<UUID, List<UserProfileResponseDTO>> fetchMentions(List<UUID> commentIds) {
@@ -278,7 +303,7 @@ public class CommentServiceImpl implements CommentService {
         return result;
     }
 
-    // ── Reactions ─────────────────────────────────────────────────────────
+    // ── Reactions ─────────────────────────────────────────────────────────────
 
     private ReactionCountResponseDTO buildReactionCounts(UUID commentId) {
         return fetchReactionCounts(List.of(commentId))
@@ -286,12 +311,11 @@ public class CommentServiceImpl implements CommentService {
     }
 
     private Map<UUID, ReactionCountResponseDTO> fetchReactionCounts(List<UUID> commentIds) {
-        if (commentIds.isEmpty()) {
-            return Map.of();
-        }
+        if (commentIds.isEmpty()) return Map.of();
         Map<UUID, Map<String, Long>> raw = new HashMap<>();
         for (var row : commentReactionsRepository.countByCommentIdIn(commentIds)) {
-            raw.computeIfAbsent(row.getCommentId(), k -> new HashMap<>()).put(row.getReactionType(), row.getCount());
+            raw.computeIfAbsent(row.getCommentId(), k -> new HashMap<>())
+               .put(row.getReactionType(), row.getCount());
         }
         Map<UUID, ReactionCountResponseDTO> result = new HashMap<>();
         for (var entry : raw.entrySet()) {
@@ -307,9 +331,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     private Map<UUID, ReactionType> fetchMyReactions(List<UUID> commentIds, UUID viewerId) {
-        if (viewerId == null || commentIds.isEmpty()) {
-            return Map.of();
-        }
+        if (viewerId == null || commentIds.isEmpty()) return Map.of();
         Map<UUID, ReactionType> result = new HashMap<>();
         for (var row : commentReactionsRepository.findUserReactions(viewerId, commentIds)) {
             result.put(row.getCommentId(), ReactionType.valueOf(row.getReactionType().toUpperCase()));

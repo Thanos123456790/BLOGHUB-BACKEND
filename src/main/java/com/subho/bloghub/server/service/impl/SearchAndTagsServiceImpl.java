@@ -32,8 +32,8 @@ public class SearchAndTagsServiceImpl implements SearchAndTagsService {
     private final TagsRepository tagsRepository;
 
     @Override
-    public Page<BlogCardResponseDTO> searchBlogs(String query, Pageable pageable) {
-        return blogService.searchBlogs(query, pageable);
+    public Page<BlogCardResponseDTO> searchBlogs(String query, Pageable pageable, String accessToken) {
+        return blogService.searchBlogs(query, pageable, accessToken);
     }
 
     @Override
@@ -41,7 +41,9 @@ public class SearchAndTagsServiceImpl implements SearchAndTagsService {
         if (!StringUtils.hasText(query)) {
             throw new BadRequestException("Search query must not be blank");
         }
-        return userRepository.searchByNameOrHandle(query.trim(), pageable)
+        // VLN-08 FIX: Escape SQL LIKE wildcards before passing to the repository query
+        String safeQuery = escapeLikeWildcards(query.trim());
+        return userRepository.searchByNameOrHandle(safeQuery, pageable)
                 .map(this::buildProfileResponse);
     }
 
@@ -55,8 +57,15 @@ public class SearchAndTagsServiceImpl implements SearchAndTagsService {
     }
 
     @Override
-    public Page<BlogCardResponseDTO> getBlogsByTag(String tagName, Pageable pageable) {
-        return blogService.getBlogsByTag(tagName, pageable);
+    public Page<BlogCardResponseDTO> getBlogsByTag(String tagName, Pageable pageable, String accessToken) {
+        return blogService.getBlogsByTag(tagName, pageable, accessToken);
+    }
+
+    private String escapeLikeWildcards(String input) {
+        return input
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     private UserProfileResponseDTO buildProfileResponse(Users user) {

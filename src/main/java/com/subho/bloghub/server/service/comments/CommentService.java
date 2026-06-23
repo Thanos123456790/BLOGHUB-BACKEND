@@ -9,17 +9,17 @@ import org.springframework.data.domain.Pageable;
 
 public interface CommentService {
 
-    Page<CommentResponseDTO> getTopComments(String blogId, Pageable pageable);
+    Page<CommentResponseDTO> getTopComments(String accessToken, String blogId, Pageable pageable);
 
-    CommentResponseDTO postTopComment(String blogId, CreateCommentRequestDTO request);
+    CommentResponseDTO postTopComment(String accessToken, String blogId, CreateCommentRequestDTO request);
 
-    CommentResponseDTO replyToComment(String blogId, String commentId, CreateCommentRequestDTO request);
+    CommentResponseDTO replyToComment(String accessToken, String blogId, String commentId, CreateCommentRequestDTO request);
 
-    CommentResponseDTO updateComment(String commentId, CreateCommentRequestDTO request);
+    CommentResponseDTO updateComment(String accessToken, String commentId, CreateCommentRequestDTO request);
 
-    void deleteComment(String commentId);
+    void deleteComment(String accessToken, String commentId);
 
-    ReactionCountResponseDTO addReaction(String commentId, ReactionRequestDTO request);
+    ReactionCountResponseDTO addReaction(String accessToken, String commentId, ReactionRequestDTO request);
 
-    ReactionCountResponseDTO removeReaction(String commentId);
+    ReactionCountResponseDTO removeReaction(String accessToken, String commentId);
 }

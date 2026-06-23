@@ -15,15 +15,12 @@ public interface UserRepository extends JpaRepository<Users, UUID> {
 
     Optional<Users> findByHandle(String handle);
 
+    Optional<Users> findByClerkUserId(String clerkUserId);
+
     boolean existsByHandle(String handle);
 
     List<Users> findByIdIn(List<UUID> ids);
 
-    /**
-     * Ranks users by follower count, most-followed first. This is a deliberately simple v1 of
-     * "suggested users" — no personalization (e.g. excluding people the viewer already follows,
-     * mutual-follow signals, shared tags) since that needs a resolved current user.
-     */
     @Query("""
             SELECT u FROM Users u
             LEFT JOIN Follows f ON f.following = u
@@ -32,10 +29,15 @@ public interface UserRepository extends JpaRepository<Users, UUID> {
             """)
     Page<Users> findSuggested(Pageable pageable);
 
+    /**
+     * VLN-08 FIX: Caller must escape LIKE wildcards (%, _, \) before passing
+     * the query string. See BlogServiceImpl.escapeLikeWildcards() for the
+     * escaping utility; the same pattern is used in SearchAndTagsServiceImpl.
+     */
     @Query("""
             SELECT u FROM Users u
-            WHERE LOWER(u.name) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(u.handle) LIKE LOWER(CONCAT('%', :query, '%'))
+            WHERE LOWER(u.name)   LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
+               OR LOWER(u.handle) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\'
             ORDER BY u.name ASC
             """)
     Page<Users> searchByNameOrHandle(@Param("query") String query, Pageable pageable);

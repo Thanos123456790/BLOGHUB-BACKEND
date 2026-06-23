@@ -12,7 +12,7 @@ public interface UserService {
 
     UserProfileResponseDTO updateCurrentUserProfile(String accessToken, UpdateProfileRequestDTO request);
 
-    UserProfileResponseDTO getPublicProfile(String handle);
+    UserProfileResponseDTO getPublicProfile(String accessToken, String handle);
 
     Page<BlogCardResponseDTO> getPublicProfileBlogs(String handle, Pageable pageable);
 
@@ -20,5 +20,9 @@ public interface UserService {
 
     Page<UserProfileResponseDTO> getPublicProfileFollowing(String handle, Pageable pageable);
 
-    Page<UserProfileResponseDTO> getSuggestedUsers(Pageable pageable);
+    Page<UserProfileResponseDTO> getSuggestedUsers(String accessToken, Pageable pageable);
+
+    void followUser(String accessToken, String handle);
+
+    void unfollowUser(String accessToken, String handle);
 }

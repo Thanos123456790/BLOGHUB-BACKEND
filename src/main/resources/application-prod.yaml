@@ -2,10 +2,14 @@ spring:
   application:
     name: bloghub
 
+  # ─── Clerk JWT / OAuth2 Resource Server ─────────────────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${CLERK_JWKS_URI}
+
   # ─── PostgreSQL Configuration ───────────────────────────────────────────────
-  # All credentials are sourced from environment variables — never hardcode
-  # secrets in committed config files. See .env.example for the variables
-  # this file expects.
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -21,12 +25,13 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      # VLN-06 FIX: Use 'validate' in production — never 'update'.
+      # All schema changes must go through Flyway/Liquibase migrations.
+      ddl-auto: none
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
         jdbc:
           batch_size: 50
         order_inserts: true
@@ -34,24 +39,28 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      max-file-size: 6MB
+      max-request-size: 6MB
 
 # ─── AWS S3 Configuration ────────────────────────────────────────────────────
-# Credentials are NEVER stored here. Locally, export AWS_ACCESS_KEY_ID /
-# AWS_SECRET_ACCESS_KEY (or use an AWS profile / instance role in deployed
-# environments) and the SDK default credential chain picks them up — see
-# S3Config. Only non-secret settings live in this file.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false  # Set to true ONLY when first enabling Flyway on an existing DB
+    out-of-order: false
+
 app:
   aws:
     region: ${AWS_REGION}
     s3:
       bucket-name: ${AWS_S3_BUCKET}
-      endpoint: ${AWS_S3_ENDPOINT:}            # override for LocalStack, e.g. http://localhost:4566
+      endpoint: ${AWS_S3_ENDPOINT:}
       path-style-access-enabled: ${AWS_S3_PATH_STYLE:false}
       presigned-url-ttl-minutes: 15
       max-file-size-bytes: 5242880              # 5MB
       allowed-content-types: image/jpeg,image/png,image/webp,image/gif
+      # VLN-04 FIX: Allowlist of trusted CDN/S3 hostnames for URL fields
+      trusted-image-hosts: ${AWS_S3_BUCKET}.s3.amazonaws.com,images.unsplash.com
 
   pagination:
     default-page-size: 10
@@ -60,8 +69,17 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
 
+  # VLN-05 FIX: Rate limiting configuration (requires Bucket4j + Redis in prod)
+  rate-limit:
+    asset-upload-per-user-per-hour: 20
+    write-per-user-per-minute: 30
+
 # ─── Spring Boot Actuator ────────────────────────────────────────────────────
-management:                           # Actuator on a separate port (optional)
+# VLN-14 FIX: Actuator is no longer in the public allow-list (see SecurityConfig).
+# In production, move to a separate management port not exposed publicly.
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}   # Separate port — do not expose to internet
   endpoints:
     web:
       base-path: /actuator
@@ -74,10 +92,10 @@ management:                           # Actuator on a separate port (optional)
       show-details: when-authorized
       show-components: when-authorized
       probes:
-        enabled: true                    # enables /actuator/health/liveness & /readiness
+        enabled: true
   health:
     db:
-      enabled: true                      # PostgreSQL health indicator
+      enabled: true
     diskspace:
       enabled: true
       threshold: 10MB
@@ -94,10 +112,15 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
+# ─── Swagger/OpenAPI ─────────────────────────────────────────────────────────
+# VLN-03 FIX: Disable API docs entirely in production.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 # ─── Server ──────────────────────────────────────────────────────────────────
-# PORT is injected by the hosting platform (Render, Railway, Fly.io).
-# Falls back to 8080 for local Docker runs. The Dockerfile ENTRYPOINT passes
-# -Dserver.port=${PORT:-8080}, so this yaml value is only a safety net.
 server:
   port: ${PORT:8080}
   error:

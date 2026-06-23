@@ -29,7 +29,7 @@ public class CommentController implements CommentsAPI {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = pageRequestFactory.of(page, size);
-        return ResponseEntity.ok(commentService.getTopComments(blogId, pageable));
+        return ResponseEntity.ok(commentService.getTopComments(accessToken, blogId, pageable));
     }
 
     @Override
@@ -37,7 +37,8 @@ public class CommentController implements CommentsAPI {
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @Valid @RequestBody CreateCommentRequestDTO comment,
             @PathVariable String blogId) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(commentService.postTopComment(blogId, comment));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(commentService.postTopComment(accessToken, blogId, comment));
     }
 
     @Override
@@ -46,7 +47,8 @@ public class CommentController implements CommentsAPI {
             @Valid @RequestBody CreateCommentRequestDTO comment,
             @PathVariable String commentId,
             @PathVariable String blogId) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(commentService.replyToComment(blogId, commentId, comment));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(commentService.replyToComment(accessToken, blogId, commentId, comment));
     }
 
     @Override
@@ -54,14 +56,14 @@ public class CommentController implements CommentsAPI {
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id,
             @Valid @RequestBody CreateCommentRequestDTO comment) {
-        return ResponseEntity.ok(commentService.updateComment(id, comment));
+        return ResponseEntity.ok(commentService.updateComment(accessToken, id, comment));
     }
 
     @Override
     public ResponseEntity<Void> deleteComment(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        commentService.deleteComment(id);
+        commentService.deleteComment(accessToken, id);
         return ResponseEntity.noContent().build();
     }
 
@@ -70,13 +72,13 @@ public class CommentController implements CommentsAPI {
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id,
             @Valid @RequestBody ReactionRequestDTO reaction) {
-        return ResponseEntity.ok(commentService.addReaction(id, reaction));
+        return ResponseEntity.ok(commentService.addReaction(accessToken, id, reaction));
     }
 
     @Override
     public ResponseEntity<ReactionCountResponseDTO> removeReactionOnComment(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        return ResponseEntity.ok(commentService.removeReaction(id));
+        return ResponseEntity.ok(commentService.removeReaction(accessToken, id));
     }
 }

@@ -32,21 +32,21 @@ public class BlogController implements BlogsAPI {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = pageRequestFactory.of(page, size);
-        return ResponseEntity.ok(blogService.getFeed(feed, tag, pageable));
+        return ResponseEntity.ok(blogService.getFeed(accessToken, feed, tag, pageable));
     }
 
     @Override
     public ResponseEntity<BlogResponseDTO> createBlog(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @Valid @RequestBody CreateBlogRequestDTO blog) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(blogService.createBlog(blog));
+        return ResponseEntity.status(HttpStatus.CREATED).body(blogService.createBlog(accessToken, blog));
     }
 
     @Override
     public ResponseEntity<BlogResponseDTO> getFullBlog(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        return ResponseEntity.ok(blogService.getFullBlog(id));
+        return ResponseEntity.ok(blogService.getFullBlog(accessToken, id));
     }
 
     @Override
@@ -54,14 +54,14 @@ public class BlogController implements BlogsAPI {
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id,
             @Valid @RequestBody UpdateBlogRequestDTO blog) {
-        return ResponseEntity.ok(blogService.updateBlog(id, blog));
+        return ResponseEntity.ok(blogService.updateBlog(accessToken, id, blog));
     }
 
     @Override
     public ResponseEntity<Void> deleteBlog(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        blogService.deleteBlog(id);
+        blogService.deleteBlog(accessToken, id);
         return ResponseEntity.noContent().build();
     }
 
@@ -71,7 +71,7 @@ public class BlogController implements BlogsAPI {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = pageRequestFactory.of(page, size);
-        return ResponseEntity.ok(blogService.getTrendingBlogs(pageable));
+        return ResponseEntity.ok(blogService.getTrendingBlogs(pageable, accessToken));
     }
 
     @Override
@@ -79,14 +79,14 @@ public class BlogController implements BlogsAPI {
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id,
             @Valid @RequestBody ReactionRequestDTO reaction) {
-        return ResponseEntity.ok(blogService.addReaction(id, reaction));
+        return ResponseEntity.ok(blogService.addReaction(accessToken, id, reaction));
     }
 
     @Override
     public ResponseEntity<ReactionCountResponseDTO> removeReactionsOnBlog(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        return ResponseEntity.ok(blogService.removeReaction(id));
+        return ResponseEntity.ok(blogService.removeReaction(accessToken, id));
     }
 
     @Override
@@ -95,14 +95,14 @@ public class BlogController implements BlogsAPI {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = pageRequestFactory.of(page, size);
-        return ResponseEntity.ok(blogService.getBookmarkedBlogs(pageable));
+        return ResponseEntity.ok(blogService.getBookmarkedBlogs(accessToken, pageable));
     }
 
     @Override
     public ResponseEntity<Void> addBookmarkOnBlog(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        blogService.addBookmark(id);
+        blogService.addBookmark(accessToken, id);
         return ResponseEntity.noContent().build();
     }
 
@@ -110,7 +110,7 @@ public class BlogController implements BlogsAPI {
     public ResponseEntity<Void> removeBookmarkFromBlog(
             @RequestHeader(value = "Authorization", required = false) String accessToken,
             @PathVariable String id) {
-        blogService.removeBookmark(id);
+        blogService.removeBookmark(accessToken, id);
         return ResponseEntity.noContent().build();
     }
 }

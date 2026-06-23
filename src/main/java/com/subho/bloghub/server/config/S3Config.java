@@ -29,7 +29,7 @@ import java.net.URI;
 @EnableConfigurationProperties(S3Properties.class)
 public class S3Config {
 
-    @Value("${app.aws.region:ap-south-1}")
+    @Value("${app.aws.region}")
     private String region;
 
     @Bean

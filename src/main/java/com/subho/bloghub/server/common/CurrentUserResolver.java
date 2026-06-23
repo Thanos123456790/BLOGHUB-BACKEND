@@ -1,45 +1,98 @@
 package com.subho.bloghub.server.common;
 
+import com.subho.bloghub.server.entity.users.Users;
+import com.subho.bloghub.server.exception.ApplicationException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
 /**
- * Single shared placeholder for resolving the caller's identity from an
- * access token. Authentication/authorization is explicitly out of scope
- * right now — every module that needs "who is the current user" (to
- * persist an author/actor, check ownership, or compute personalized fields
- * like {@code isFollowing}/{@code myReaction}/{@code bookmarked}) calls
- * through here, so the day real auth is implemented there is exactly one
- * place to change.
+ * Resolves the currently authenticated caller's internal DB {@link UUID} from
+ * a raw {@code Authorization: Bearer <token>} header value. Uses Spring's
+ * {@link JwtDecoder} (configured against Clerk's JWKS endpoint) for stateless
+ * cryptographic verification — no Clerk SDK or Clerk API call required.
  *
- * Endpoints that require a caller identity to do their job (creating a
- * blog, reacting, commenting, etc.) will throw via {@link #requireCurrentUserId}
- * until this is wired up. Endpoints where identity is optional (most public
- * GETs) should treat a missing/unresolvable token as "anonymous" rather
- * than failing — see callers for the exact pattern.
+ * <p>On the first request from a given Clerk user, {@link ClerkUserProvisioner}
+ * transparently creates a {@link Users} row so FK constraints on blog/comment
+ * authors are satisfied from day one.
+ *
+ * <h3>Token format expected</h3>
+ * Controllers bind {@code @RequestHeader("Authorization")} including the
+ * "Bearer " prefix. This class strips that prefix before decoding.
  */
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class CurrentUserResolver {
 
+    private final JwtDecoder jwtDecoder;
+    private final ClerkUserProvisioner provisioner;
+
     /**
-     * Resolves the current user id, throwing if it cannot be resolved.
-     * Use on endpoints where identity is mandatory for the operation to
-     * make sense (create blog, post comment, react, follow, bookmark...).
+     * Resolves the current user's UUID, throwing a 401 if the token is absent,
+     * expired, or cryptographically invalid.
+     * Use on write endpoints (create blog, post comment, react, follow, …).
      */
     public UUID requireCurrentUserId(String accessToken) {
-        throw new UnsupportedOperationException(
-                "Access token resolution is not implemented yet. accessToken is currently " +
-                        "threaded through the API/controller layer only, per project scope.");
+        return resolveUser(accessToken, true).getId();
     }
 
     /**
-     * Best-effort resolution for endpoints where identity is optional (e.g.
-     * public blog/comment reads that personalize myReaction/bookmarked when
-     * a caller IS known). Returns null instead of throwing — callers must
-     * treat null as "anonymous viewer".
+     * Best-effort resolution — returns {@code null} instead of throwing when no
+     * valid token is present. Use on public-read endpoints that personalise their
+     * response when a caller IS known (myReaction, bookmarked, isFollowing).
      */
     public UUID resolveCurrentUserIdOrNull(String accessToken) {
-        return null;
+        if (accessToken == null || accessToken.isBlank()) {
+            return null;
+        }
+        try {
+            return resolveUser(accessToken, false).getId();
+        } catch (Exception e) {
+            log.debug("Token present but resolution failed (treated as anonymous): {}", e.getMessage());
+            return null;
+        }
+    }
+
+    // ── private ──────────────────────────────────────────────────────────
+
+    private Users resolveUser(String rawToken, boolean strict) {
+        if (rawToken == null || rawToken.isBlank()) {
+            if (strict) {
+                throw new ApplicationException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED",
+                        "Authorization header is required");
+            }
+            return null;
+        }
+
+        String token = stripBearer(rawToken);
+
+        Jwt jwt;
+        try {
+            jwt = jwtDecoder.decode(token);
+        } catch (JwtException e) {
+            if (strict) {
+                log.warn("JWT decode failed: {}", e.getMessage());
+                throw new ApplicationException(HttpStatus.UNAUTHORIZED, "INVALID_TOKEN",
+                        "Access token is invalid or has expired");
+            }
+            return null;
+        }
+
+        // Provision or load the local Users record (idempotent after first request).
+        return provisioner.provisionOrGet(jwt);
+    }
+
+    private static String stripBearer(String header) {
+        if (header != null && header.startsWith("Bearer ")) {
+            return header.substring(7).trim();
+        }
+        return header != null ? header.trim() : "";
     }
 }

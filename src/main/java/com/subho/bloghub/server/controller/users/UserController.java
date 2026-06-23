@@ -34,8 +34,10 @@ public class UserController implements UsersAPI {
     }
 
     @Override
-    public ResponseEntity<UserProfileResponseDTO> getPublicProfile(@PathVariable String handle) {
-        return ResponseEntity.ok(userService.getPublicProfile(handle));
+    public ResponseEntity<UserProfileResponseDTO> getPublicProfile(
+            @RequestHeader(value = "Authorization", required = false) String accessToken,
+            @PathVariable String handle) {
+        return ResponseEntity.ok(userService.getPublicProfile(accessToken, handle));
     }
 
     @Override
@@ -67,9 +69,26 @@ public class UserController implements UsersAPI {
 
     @Override
     public ResponseEntity<Page<UserProfileResponseDTO>> getSuggestedUsers(
+            @RequestHeader(value = "Authorization", required = false) String accessToken,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = pageRequestFactory.of(page, size);
-        return ResponseEntity.ok(userService.getSuggestedUsers(pageable));
+        return ResponseEntity.ok(userService.getSuggestedUsers(accessToken, pageable));
+    }
+
+    @Override
+    public ResponseEntity<Void> followUser(
+            @RequestHeader("Authorization") String accessToken,
+            @PathVariable String handle) {
+        userService.followUser(accessToken, handle);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Override
+    public ResponseEntity<Void> unfollowUser(
+            @RequestHeader("Authorization") String accessToken,
+            @PathVariable String handle) {
+        userService.unfollowUser(accessToken, handle);
+        return ResponseEntity.noContent().build();
     }
 }

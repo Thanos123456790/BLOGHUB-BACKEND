@@ -1,9 +1,30 @@
+# Maven
 target/
 *.class
+
+# Environment / secrets — NEVER commit
 .env
+.env.local
+application-local.yaml
+application-prod.yaml
+# application-local.yaml.example IS safe to commit
+
+# IDE
 .idea/
 *.iml
 .vscode/
-.DS_Store
+
+# Logs
 *.log
-HELP.md
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VLN-19 FIX: never commit secret files
+.env
+.env.local
+*.secret
+application-secrets.yaml
+application-local-secrets.yaml

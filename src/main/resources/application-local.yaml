@@ -2,10 +2,12 @@ spring:
   application:
     name: bloghub
 
-  # ─── PostgreSQL Configuration ───────────────────────────────────────────────
-  # All credentials are sourced from environment variables — never hardcode
-  # secrets in committed config files. See .env.example for the variables
-  # this file expects.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${CLERK_JWKS_URI:https://elegant-dog-65.clerk.accounts.dev/.well-known/jwks.json}
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/bloghub_db}
     username: ${DB_USERNAME:postgres}
@@ -26,32 +28,35 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
         jdbc:
           batch_size: 50
         order_inserts: true
         order_updates: true
 
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+    out-of-order: false
+
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      max-file-size: 6MB
+      max-request-size: 6MB
 
-# ─── AWS S3 Configuration ────────────────────────────────────────────────────
-# Credentials are NEVER stored here. Locally, export AWS_ACCESS_KEY_ID /
-# AWS_SECRET_ACCESS_KEY (or use an AWS profile / instance role in deployed
-# environments) and the SDK default credential chain picks them up — see
-# S3Config. Only non-secret settings live in this file.
 app:
   aws:
     region: ${AWS_REGION:ap-south-1}
     s3:
-      bucket-name: ${AWS_S3_BUCKET:aws-s3-bloghub-bucket}
-      endpoint: ${AWS_S3_ENDPOINT:}            # override for LocalStack, e.g. http://localhost:4566
+      bucket-name: ${AWS_S3_BUCKET:amzn-s3-spark-buket}
+      endpoint: ${AWS_S3_ENDPOINT:}
       path-style-access-enabled: ${AWS_S3_PATH_STYLE:false}
       presigned-url-ttl-minutes: 15
-      max-file-size-bytes: 5242880              # 5MB
+      max-file-size-bytes: 5242880
       allowed-content-types: image/jpeg,image/png,image/webp,image/gif
+      trusted-image-hosts:
+        - amzn-s3-spark-buket.s3.ap-south-1.amazonaws.com
+        - images.unsplash.com
 
   pagination:
     default-page-size: 10
@@ -60,8 +65,11 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
-# ─── Spring Boot Actuator ────────────────────────────────────────────────────
-management:                           # Actuator on a separate port (optional)
+  rate-limit:
+    asset-upload-per-user-per-hour: 100
+    write-per-user-per-minute: 60
+
+management:
   endpoints:
     web:
       base-path: /actuator
@@ -74,27 +82,23 @@ management:                           # Actuator on a separate port (optional)
       show-details: when-authorized
       show-components: when-authorized
       probes:
-        enabled: true                    # enables /actuator/health/liveness & /readiness
-  health:
-    db:
-      enabled: true                      # PostgreSQL health indicator
-    diskspace:
-      enabled: true
-      threshold: 10MB
-    defaults:
-      enabled: true
+        enabled: true
 
-# ─── Logging ─────────────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
 logging:
   level:
     root: INFO
     com.subho.bloghub: DEBUG
-    org.springframework.web: INFO
+    org.springframework.web: DEBUG
     com.zaxxer.hikari: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
-# ─── Server ──────────────────────────────────────────────────────────────────
 server:
   port: 8070
   error:

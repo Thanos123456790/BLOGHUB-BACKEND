@@ -16,20 +16,19 @@ public class BlogBlockRequestDTO {
     @NotNull(message = "Block type is required")
     private BlockType type;
 
-    @Schema(
-            description = "Text content for paragraph/heading/quote blocks, or image URL for image blocks",
-            example = "Somewhere around year three of carrying a pager...",
-            requiredMode = Schema.RequiredMode.REQUIRED
-    )
+    // VLN-04 + VLN-07 FIX: For IMAGE blocks, content is a URL and must use https.
+    // Validated further in service layer against the trusted-hosts allowlist.
+    // For text blocks, plain text content is stored as-is (React renders it safely).
+    @Schema(description = "Text content, or https image URL for IMAGE blocks", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotBlank(message = "Block content is required")
     @Size(max = 10000, message = "Block content must not exceed 10,000 characters")
     private String content;
 
-    @Schema(description = "Caption for image blocks (optional)", example = "Our incident board from the night this post was born.")
+    @Schema(description = "Caption for image blocks (optional)")
     @Size(max = 300, message = "Caption must not exceed 300 characters")
     private String caption;
 
-    @Schema(description = "CSS filter for image blocks", example = "grayscale", allowableValues = {"grayscale", "warm", "cool", "vintage", "dramatic"})
+    @Schema(description = "CSS filter for image blocks", allowableValues = {"grayscale", "warm", "cool", "vintage", "dramatic"})
     @Pattern(
             regexp = "^(grayscale|warm|cool|vintage|dramatic)?$",
             message = "Filter must be one of: grayscale, warm, cool, vintage, dramatic"

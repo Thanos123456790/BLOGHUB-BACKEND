@@ -17,6 +17,10 @@ public interface BlogReactionsRepository extends JpaRepository<BlogReactions, UU
     @Modifying
     void deleteByUser_IdAndBlog_Id(UUID userId, UUID blogId);
 
+    /** VLN-11 FIX: Bulk delete all reactions for a blog being deleted. */
+    @Modifying
+    void deleteByBlog_Id(UUID blogId);
+
     @Query("""
             SELECT r.reactionType as reactionType, COUNT(r) as count
             FROM BlogReactions r

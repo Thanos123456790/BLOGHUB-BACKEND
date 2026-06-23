@@ -2,6 +2,7 @@ package com.subho.bloghub.server.service.impl;
 
 import com.subho.bloghub.client.dtos.notification.NotificationActorDTO;
 import com.subho.bloghub.client.dtos.notification.NotificationResponseDTO;
+import com.subho.bloghub.client.enums.NotificationType;
 import com.subho.bloghub.server.common.CurrentUserResolver;
 import com.subho.bloghub.server.common.UuidUtils;
 import com.subho.bloghub.server.entity.blogs.Blogs;
@@ -16,21 +17,27 @@ import com.subho.bloghub.server.repository.notifications.NotificationActorsRepos
 import com.subho.bloghub.server.repository.notifications.NotificationsRepository;
 import com.subho.bloghub.server.service.notifications.NotificationService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class NotificationServiceImpl implements NotificationService {
+
+    private static final long DEDUP_WINDOW_MINUTES = 30;
 
     private final NotificationsRepository notificationsRepository;
     private final NotificationActorsRepository notificationActorsRepository;
@@ -75,8 +82,28 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional
     public void notify(Users recipient, Users actor, String type, Blogs blog, Comments comment, String message) {
-        // Never notify yourself about your own action (e.g. reacting to your own post)
         if (recipient == null || actor == null || recipient.getId().equals(actor.getId())) {
+            return;
+        }
+
+        // VLN-08b FIX: Validate type against the known NotificationType enum values.
+        // Unknown types are silently dropped instead of creating junk notifications.
+        try {
+            NotificationType.valueOf(type.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            log.warn("Ignoring notification with unknown type '{}' from actor {} to recipient {}",
+                    type, actor.getId(), recipient.getId());
+            return;
+        }
+
+        UUID blogId    = blog    != null ? blog.getId()    : null;
+        UUID commentId = comment != null ? comment.getId() : null;
+        Instant since  = Instant.now().minus(DEDUP_WINDOW_MINUTES, ChronoUnit.MINUTES);
+
+        boolean alreadyNotified = notificationsRepository.existsDuplicate(
+                recipient.getId(), actor.getId(), type, blogId, commentId, since);
+
+        if (alreadyNotified) {
             return;
         }
 
@@ -109,14 +136,14 @@ public class NotificationServiceImpl implements NotificationService {
                 : actors.size() == 1 ? actors.get(0).getName()
                 : actors.get(0).getName() + " and " + (actors.size() - 1) + " other" + (actors.size() > 2 ? "s" : "");
 
-        return switch (notification.getType()) {
-            case "follow" -> actorPart + " followed you";
-            case "reaction" -> actorPart + " reacted to your post";
-            case "comment" -> actorPart + " commented on your post";
-            case "reply" -> actorPart + " replied to your comment";
-            case "mention" -> actorPart + " mentioned you in a comment";
-            case "comment_reaction" -> actorPart + " reacted to your comment";
-            default -> actorPart + " interacted with your content";
+        return switch (notification.getType().toUpperCase()) {
+            case "FOLLOW"           -> actorPart + " followed you";
+            case "REACTION"         -> actorPart + " reacted to your post";
+            case "COMMENT"          -> actorPart + " commented on your post";
+            case "REPLY"            -> actorPart + " replied to your comment";
+            case "MENTION"          -> actorPart + " mentioned you in a comment";
+            case "COMMENT_REACTION" -> actorPart + " reacted to your comment";
+            default                 -> actorPart + " interacted with your content";
         };
     }
 }
