@@ -2,14 +2,12 @@ spring:
   application:
     name: bloghub
 
-  # ─── Clerk JWT / OAuth2 Resource Server ─────────────────────────────────────
   security:
     oauth2:
       resourceserver:
         jwt:
           jwk-set-uri: ${CLERK_JWKS_URI}
 
-  # ─── PostgreSQL Configuration ───────────────────────────────────────────────
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -21,13 +19,11 @@ spring:
       minimum-idle: 5
       idle-timeout: 300000
       max-lifetime: 1200000
-      pool-name: HikariPool-Prod
+      pool-name: HikariPool-Local
 
   jpa:
     hibernate:
-      # VLN-06 FIX: Use 'validate' in production — never 'update'.
-      # All schema changes must go through Flyway/Liquibase migrations.
-      ddl-auto: none
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
@@ -37,17 +33,16 @@ spring:
         order_inserts: true
         order_updates: true
 
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+    out-of-order: false
+
   servlet:
     multipart:
       max-file-size: 6MB
       max-request-size: 6MB
-
-# ─── AWS S3 Configuration ────────────────────────────────────────────────────
-  flyway:
-    enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: false  # Set to true ONLY when first enabling Flyway on an existing DB
-    out-of-order: false
 
 app:
   aws:
@@ -57,10 +52,11 @@ app:
       endpoint: ${AWS_S3_ENDPOINT:}
       path-style-access-enabled: ${AWS_S3_PATH_STYLE:false}
       presigned-url-ttl-minutes: 15
-      max-file-size-bytes: 5242880              # 5MB
+      max-file-size-bytes: 5242880
       allowed-content-types: image/jpeg,image/png,image/webp,image/gif
-      # VLN-04 FIX: Allowlist of trusted CDN/S3 hostnames for URL fields
-      trusted-image-hosts: ${AWS_S3_BUCKET}.s3.amazonaws.com,images.unsplash.com
+      trusted-image-hosts:
+        - amzn-s3-spark-buket.s3.ap-south-1.amazonaws.com
+        - images.unsplash.com
 
   pagination:
     default-page-size: 10
@@ -69,17 +65,11 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
 
-  # VLN-05 FIX: Rate limiting configuration (requires Bucket4j + Redis in prod)
   rate-limit:
-    asset-upload-per-user-per-hour: 20
-    write-per-user-per-minute: 30
+    asset-upload-per-user-per-hour: 100
+    write-per-user-per-minute: 60
 
-# ─── Spring Boot Actuator ────────────────────────────────────────────────────
-# VLN-14 FIX: Actuator is no longer in the public allow-list (see SecurityConfig).
-# In production, move to a separate management port not exposed publicly.
 management:
-  server:
-    port: ${MANAGEMENT_PORT:8081}   # Separate port — do not expose to internet
   endpoints:
     web:
       base-path: /actuator
@@ -93,36 +83,24 @@ management:
       show-components: when-authorized
       probes:
         enabled: true
-  health:
-    db:
-      enabled: true
-    diskspace:
-      enabled: true
-      threshold: 10MB
-    defaults:
-      enabled: true
 
-# ─── Logging ─────────────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
 logging:
   level:
     root: INFO
-    com.subho.bloghub: INFO
-    org.springframework.web: WARN
-    com.zaxxer.hikari: WARN
+    com.subho.bloghub: DEBUG
+    org.springframework.web: DEBUG
+    com.zaxxer.hikari: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
-# ─── Swagger/OpenAPI ─────────────────────────────────────────────────────────
-# VLN-03 FIX: Disable API docs entirely in production.
-springdoc:
-  api-docs:
-    enabled: false
-  swagger-ui:
-    enabled: false
-
-# ─── Server ──────────────────────────────────────────────────────────────────
 server:
-  port: ${PORT:8080}
+  port: 8070
   error:
     include-message: never
     include-binding-errors: never
